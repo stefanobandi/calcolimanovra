@@ -48,9 +48,23 @@ focus_on = st.sidebar.radio(
 zoom_level = st.sidebar.slider("🔎 Visual Scale", 0.5, 3.0, 1.0, 0.1)
 
 # ==========================================
-# 3. AREA PRINCIPALE (INPUT TUG)
+# 3. AREA PRINCIPALE (INTESTAZIONE E INPUT)
 # ==========================================
-st.title("🚜 Vector Towing Force Simulator")
+st.title("Vector Towing Force Simulator")
+
+# Banner Work in Progress
+st.markdown("""
+    <div style='background-color: #ff9800; padding: 20px; text-align: center; border-radius: 10px; border: 2px dashed #e65100; margin-bottom: 20px;'>
+        <h1 style='color: white; margin: 0; text-transform: uppercase; font-size: 2.5rem;'>🚧 Work in Progress 🚧</h1>
+        <p style='color: white; font-size: 1.2rem; margin-top: 10px;'>This application is currently under heavy construction. Features, physics, and data are subject to change.</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# Subtitle & Copyright
+st.markdown("#### For technical inquiries, feedback, or data contributions, please contact: [stefano.bandi22@gmail.com](mailto:stefano.bandi22@gmail.com)")
+st.markdown("*© 2026 Stefano Bandi - All rights reserved. Commercial use is strictly prohibited.*")
+st.markdown("---")
+
 st.markdown(f"**Scenario:** Ship length **{SHIP_L}m**, width **{SHIP_B}m** moving at **{velocita_nave} knots** in soft blue water.")
 
 col_prua, col_poppa = st.columns(2)
@@ -62,7 +76,7 @@ with col_prua:
     
     data_prua = tug_db[s_prua].copy()
     if s_prua == "Custom":
-        data_prua["bp"] = st.number_input("Max BP (t) - Bow", 10, 200, 60)
+        data_prua["bp"] = st.number_input("Max BP (t) - Bow", 10.0, 200.0, 60.0, step=1.0)
         data_prua["L"] = st.number_input("Length (m) - Bow", 15.0, 50.0, 30.0)
         data_prua["B"] = st.number_input("Beam (m) - Bow", 5.0, 20.0, 11.0)
         
@@ -76,7 +90,7 @@ with col_poppa:
     
     data_poppa = tug_db[s_poppa].copy()
     if s_poppa == "Custom":
-        data_poppa["bp"] = st.number_input("Max BP (t) - Stern", 10, 200, 60)
+        data_poppa["bp"] = st.number_input("Max BP (t) - Stern", 10.0, 200.0, 60.0, step=1.0)
         data_poppa["L"] = st.number_input("Length (m) - Stern", 15.0, 50.0, 30.0)
         data_poppa["B"] = st.number_input("Beam (m) - Stern", 5.0, 20.0, 11.0)
         
@@ -85,7 +99,7 @@ with col_poppa:
 
 
 # ==========================================
-# 4. MOTORE GRAFICO SVG (GENERATORE VELLORIALE)
+# 4. MOTORE GRAFICO SVG (GENERATORE VETTORIALE)
 # ==========================================
 
 def generate_svg_scene():
