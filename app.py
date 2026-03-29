@@ -81,7 +81,8 @@ focus_on = st.sidebar.radio(
     "VIEW MODE:",
     options=["Full Scene (Tight Fit)", "Bow Assembly", "Bow Tug (central)", "Stern Assembly", "Stern Tug (central)"]
 )
-zoom_level = st.sidebar.slider("🔎 Visual Scale", 0.5, 3.0, 1.0, 0.1)
+# MODIFICA: Limite minimo dello zoom abbassato a 0.2 per permettere una visuale molto più ampia
+zoom_level = st.sidebar.slider("🔎 Visual Scale", 0.2, 3.0, 1.0, 0.1)
 
 # ==========================================
 # 3. AREA PRINCIPALE (INTESTAZIONE E INPUT)
@@ -190,7 +191,6 @@ def generate_svg_scene():
     
     margin = 40.0
     
-    # Calcolo esatto dei limiti della scena per l'inquadratura Tight Fit
     min_x = min(-SHIP_B/2, tug_prua_x, tug_poppa_x)
     max_x = max(SHIP_B/2, tug_prua_x, tug_poppa_x)
     min_y = min(-SHIP_L/2, tug_prua_y, tug_poppa_y)
@@ -225,7 +225,6 @@ def generate_svg_scene():
     vx_scaled = cx - vw_scaled / 2
     vy_scaled = cy - vh_scaled / 2
 
-    # L'altezza viene gestita dinamicamente con il width=100% e height=100% per un vero Tight Fit
     svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" 
          viewBox="{vx_scaled} {vy_scaled} {vw_scaled} {vh_scaled}"
@@ -272,12 +271,9 @@ def generate_svg_scene():
         assembly += f'<line x1="0" y1="{orig_y}" x2="{tx}" y2="{ty}" class="towline" stroke="{line_col}" />'
         
         if is_bow:
-            # PRUA: Guarda in avanti (nel senso di navigazione) per il Direct Towing
             rot = angle_deg
-            # Ancoriamo visivamente il cavo alla sua poppa per evitare sovrapposizioni grafiche sgradevoli
             offset_y = -data["L"] / 2.0 
         else:
-            # POPPA: Guarda verso la nave (Escort) e subisce lo scarroccio (yaw drift) per l'Indirect Towing
             yaw_drift = velocita_nave * math.sin(math.radians(angle_deg)) * 2.5 
             if data["tow_point"] == "bow":
                 rot = angle_deg + 180 + yaw_drift 
