@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import math
+import base64
 
 # ==========================================
 # 1. CONFIGURAZIONE E DATABASE
@@ -351,9 +352,12 @@ moment_help = "Rotating Starboard ↻" if total_moment > 50 else ("Rotating Port
 with st.spinner("Rendering vector scene..."):
     svg_content = generate_svg_scene()
     
-    # RISOLUZIONE ERRORE STREAMLIT: Renderizziamo l'SVG direttamente tramite HTML 
-    # per evitare il MediaFileStorageError
-    st.markdown(f"<div style='text-align: center; width: 100%;'>{svg_content}</div>", unsafe_allow_html=True)
+    # CODIFICA BASE64: Risolve permanentemente i crash di Streamlit e i testi "Matrix"
+    b64_svg = base64.b64encode(svg_content.encode('utf-8')).decode('utf-8')
+    html_img = f'<img src="data:image/svg+xml;base64,{b64_svg}" style="width: 100%; border-radius: 8px; border: 1px solid #B0BEC5;">'
+    
+    # Mostriamo l'immagine come HTML sicuro
+    st.markdown(html_img, unsafe_allow_html=True)
     st.caption(f"Vector Tactical View: {focus_on}")
 
 # Visualizzazione metrica rapida del Momento
