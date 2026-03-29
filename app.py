@@ -40,7 +40,9 @@ focus_on = st.sidebar.radio(
     options=[
         "Full Scene (Auto-center)", 
         "Bow Assembly",        # Prua nave + cavo + Tug
-        "Stern Assembly"       # Poppa nave + cavo + Tug
+        "Bow Tug (central)",   # Solo Rimorchiatore Prua
+        "Stern Assembly",      # Poppa nave + cavo + Tug
+        "Stern Tug (central)"  # Solo Rimorchiatore Poppa
     ]
 )
 
@@ -185,7 +187,6 @@ def generate_svg_scene():
     
     if focus_on == "Full Scene (Auto-center)":
         # Calcoliamo il bounding box totale centrato sulla nave (0,0)
-        # Rendiamo il box simmetrico per tenere la nave al centro
         ext_x = max(abs(min_x_m), abs(max_x_m))
         ext_y = max(abs(min_y_m), abs(max_y_m))
         vw, vh = ext_x * 2, ext_y * 2
@@ -196,14 +197,28 @@ def generate_svg_scene():
         vw = abs(max_x_m - min_x_m) + margin*2
         vh = abs(tug_prua_y - (chock_prua_y - 20.0))
         vx = (max_x_m + min_x_m)/2 - vw/2
-        vy = chock_prua_y - 20.0 # Parte da appena sotto il chock
+        vy = chock_prua_y - 20.0
+
+    elif focus_on == "Bow Tug (central)":
+        # Inquadratura centrata esclusivamente sul Rimorchiatore di Prua
+        vw = 80.0  # Finestra di 80x80 metri attorno al tug
+        vh = 80.0
+        vx = tug_prua_x - vw/2
+        vy = tug_prua_y - vh/2
 
     elif focus_on == "Stern Assembly":
         # Inquadratura focalizzata su Poppa Nave -> Tug Poppa
         vw = abs(max_x_m - min_x_m) + margin*2
         vh = abs((chock_poppa_y + 20.0) - tug_poppa_y)
         vx = (max_x_m + min_x_m)/2 - vw/2
-        vy = tug_poppa_y # Parte dal tug in basso
+        vy = tug_poppa_y
+
+    elif focus_on == "Stern Tug (central)":
+        # Inquadratura centrata esclusivamente sul Rimorchiatore di Poppa
+        vw = 80.0
+        vh = 80.0
+        vx = tug_poppa_x - vw/2
+        vy = tug_poppa_y - vh/2
 
     # Applichiamo lo zoom (riduciamo la dimensione della finestra vista)
     vw_scaled = vw / zoom_level
@@ -213,8 +228,6 @@ def generate_svg_scene():
     vy_scaled = vy + (vh - vh_scaled) / 2
 
     # Impostiamo il ViewBox (vx, vy sono coordinate 'top-left' nel mondo metrico)
-    # Nota: in SVG Y cresce verso il basso, nel mondo marino Y cresce verso Nord.
-    # Dobbiamo invertire la Y nel transform globale.
     svg += f'<g transform="translate(0, 0) scale(1, -1)" viewbox="{vx_scaled} {-vy_scaled-vh_scaled} {vw_scaled} {vh_scaled}">'
     
     # == DISEGNO ELEMENTI ==
@@ -240,7 +253,6 @@ def generate_svg_scene():
         orig_y = chock_prua_y if is_bow else chock_poppa_y
         
         # Cavo (dal chock al centro tug)
-        # Colore cavo diventa rosso all'aumentare dell'intensità
         stress = intensity / data["bp"] if data["bp"] > 0 else 0
         r_line = int(120 + stress * 135)
         g_line = int(144 * (1-stress))
@@ -250,24 +262,21 @@ def generate_svg_scene():
         assembly += f'<line x1="0" y1="{orig_y}" x2="{tx}" y2="{ty}" class="towline" stroke="{line_col}" />'
         
         # Tug (Scafo Ruotato in asse)
-        # Angolo di rotazione scafo: Pillow=orario, SVG=orario.
-        # Ma abbiamo invertito la scala Y globale (-1), quindi rotazione è invertita.
         rot = angle_deg if is_bow else angle_deg + 180
         
         assembly += f'<g transform="translate({tx}, {ty}) rotate({-rot})">'
         assembly += f'<path d="{get_tug_path(data)}" class="tug-hull" fill="{data["color"]}" />'
-        # Etichetta Tug (dentro lo scafo, girata dritta per lettura)
         label = label_raw.split()[0]
         assembly += f'<text x="0" y="0" class="text-label" transform="rotate({rot}) scale(1,-1)" font-size="7">{label}</text>'
         
-        # Freccia Vettore Tiro (dalla prua del tug, lungo l'asse cavo)
-        arrow_l = intensity / 2.0 # Scala vettore: 1t = 0.5m
+        # Freccia Vettore Tiro
+        arrow_l = intensity / 2.0
         if arrow_l > 2:
             assembly += f'<line x1="0" y1="{data["L"]/2}" x2="0" y2="{data["L"]/2 + arrow_l}" stroke="#F1C40F" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
         
-        assembly += '</g>' # Chiude transform tug
+        assembly += '</g>'
         
-        # Data Box (vicino al tug, testo dritto non ruotato)
+        # Data Box
         assembly += f'<g transform="translate({tx+data["B"]/2+2}, {ty}) scale(1,-1)">'
         assembly += f'<text x="0" y="-8" class="text-data" font-weight="bold">{label}</text>'
         assembly += f'<text x="0" y="2" class="text-data">Pull: {intensity:.1f}t</text>'
@@ -280,7 +289,7 @@ def generate_svg_scene():
     svg += draw_tug_assembly(tug_prua_x, tug_prua_y, ang_prua, int_prua, data_prua, s_prua, is_bow=True)
     svg += draw_tug_assembly(tug_poppa_x, tug_poppa_y, ang_poppa, int_poppa, data_poppa, s_poppa, is_bow=False)
 
-    # Definiamo la punta della freccia (Marker)
+    # Definiamo la punta della freccia
     svg += """
     <defs>
         <marker id="arrowhead" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
@@ -289,7 +298,7 @@ def generate_svg_scene():
     </defs>
     """
 
-    svg += "</g></svg>" # Chiude transform globale e tag svg
+    svg += "</g></svg>"
     return svg
 
 # ==========================================
@@ -297,26 +306,18 @@ def generate_svg_scene():
 # ==========================================
 
 # Calcolo del Momento di Rotazione (Torque) totale
-# Assumiamo CG al centro nave (0,0). Lever arm = Chock Y.
-# Direzione positiva forza X = Dritta (Starboard).
 chock_prua_y_m = SHIP_L / 2 - 5.0
 chock_poppa_y_m = -SHIP_L / 2 + 5.0
 
-# Vettore forza Prua (componente laterale X)
-# ang 0 = verticale. forza X = T * sin(ang)
 force_prua_x = int_prua * math.sin(math.radians(ang_prua))
-moment_prua = force_prua_x * chock_prua_y_m # Momento positivo = rotazione oraria (a dritta)
+moment_prua = force_prua_x * chock_prua_y_m
 
-# Vettore forza Poppa
-# ang 0 = verticale (giù). forza X = T * sin(ang).
-# Nota: tirando a dritta a poppa, la forza X è positiva, ma braccio Y è negativo,
-# creando momento negativo (anti-orario).
 force_poppa_x = int_poppa * math.sin(math.radians(ang_poppa))
 moment_poppa = force_poppa_x * chock_poppa_y_m
 
-total_moment = moment_prua + moment_poppa # Tonnellate * Metri
+total_moment = moment_prua + moment_poppa
 
-# Preparazione dati per la tabella (Pandas)
+# Preparazione dati per la tabella
 res_prua = data_prua["bp"] - int_prua
 res_poppa = data_poppa["bp"] - int_poppa
 
@@ -340,7 +341,6 @@ df_results = pd.DataFrame({
     "Unità": ["kn", "t", "t", "t", "t", "t·m"]
 })
 
-# Definizione colore del momento (verde se aiuta la svolta, rosso se la ostacola - logica semplificata)
 moment_color = "normal" if abs(total_moment) < 1000 else ("off" if total_moment > 0 else "inverse")
 moment_help = "Rotating Starboard ↻" if total_moment > 50 else ("Rotating Port ↺" if total_moment < -50 else "Pushing Straight")
 
@@ -351,8 +351,10 @@ moment_help = "Rotating Starboard ↻" if total_moment > 50 else ("Rotating Port
 with st.spinner("Rendering vector scene..."):
     svg_content = generate_svg_scene()
     
-    # Mostra SVG interattivo (formato immagine SVG supportato da Streamlit)
-    st.image(svg_content, caption=f"Vector Tactical View: {focus_on}", use_container_width=True)
+    # RISOLUZIONE ERRORE STREAMLIT: Renderizziamo l'SVG direttamente tramite HTML 
+    # per evitare il MediaFileStorageError
+    st.markdown(f"<div style='text-align: center; width: 100%;'>{svg_content}</div>", unsafe_allow_html=True)
+    st.caption(f"Vector Tactical View: {focus_on}")
 
 # Visualizzazione metrica rapida del Momento
 st.markdown("---")
