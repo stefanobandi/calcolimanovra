@@ -23,7 +23,6 @@ SHIP_L = 200.0
 SHIP_B = 20.0
 
 # Parametri grafici base
-SCALE = 4.0        # Pixel per Metro (base, poi gestito da zoom)
 TOWLINE_L_M = 50.0 # Lunghezza cavo fissa in metri
 
 # ==========================================
@@ -68,7 +67,7 @@ st.markdown("#### For technical inquiries, feedback, or data contributions, plea
 st.markdown("*© 2026 Stefano Bandi - All rights reserved. Commercial use is strictly prohibited.*")
 st.markdown("---")
 
-st.markdown(f"**Scenario:** Ship length **{SHIP_L}m**, width **{SHIP_B}m** moving at **{velocita_nave} knots** in soft blue water.")
+st.markdown(f"**Scenario:** Ship length **{SHIP_L}m**, width **{SHIP_B}m** moving at **{velocita_nave} knots**.")
 
 col_prua, col_poppa = st.columns(2)
 
@@ -127,43 +126,80 @@ def generate_svg_scene():
     # --- Definizione Sagome (SVG Paths in scala metrica) ---
     
     def get_ship_path():
-        # Scafo con prua stondata e poppa quadrata/arrotondata
         b2 = SHIP_B / 2
         l2 = SHIP_L / 2
-        taper = 30.0 # Metri di taper a prua
-        
-        # M = MoveTo, C = Cubic Bezier Curve (control1_x control1_y, c2x c2y, endx endy)
-        d = f"M {b2} {-l2+2} " # Angolo poppa dritta
-        d += f"L {b2} {l2-taper} " # Linea dritta scafo fino all'inizio taper prua
-        # Curva prua (stondata)
-        d += f"C {b2} {l2-taper/2}, {b2*0.3} {l2}, 0 {l2} " # Prua punta stondata
-        d += f"C {-b2*0.3} {l2}, {-b2} {l2-taper/2}, {-b2} {l2-taper} " # Ritorno sinistra
-        d += f"L {-b2} {-l2+2} " # Linea dritta sinistra
-        # Curva specchio poppa (lievemente arrotondata)
-        d += f"C {-b2} {-l2}, {b2} {-l2}, {b2} {-l2+2} Z" # Chiusura
+        taper = 30.0
+        d = f"M {b2} {-l2+2} "
+        d += f"L {b2} {l2-taper} "
+        d += f"C {b2} {l2-taper/2}, {b2*0.3} {l2}, 0 {l2} "
+        d += f"C {-b2*0.3} {l2}, {-b2} {l2-taper/2}, {-b2} {l2-taper} "
+        d += f"L {-b2} {-l2+2} "
+        d += f"C {-b2} {-l2}, {b2} {-l2}, {b2} {-l2+2} Z"
         return d
 
     def get_tug_path(data):
         l, b = data["L"], data["B"]
         l2, b2 = l/2, b/2
-        # Sagoma idrodinamica tug
         d = f"M {b2} {-l2+1} "
-        d += f"L {b2} {l2-b*0.8} " # Taper prua inizia in base alla larghezza
-        d += f"C {b2} {l2}, {-b2} {l2}, {-b2} {l2-b*0.8} " # Curva prua stondata unica
+        d += f"L {b2} {l2-b*0.8} "
+        d += f"C {b2} {l2}, {-b2} {l2}, {-b2} {l2-b*0.8} "
         d += f"L {-b2} {-l2+1} "
-        d += f"C {-b2} {-l2}, {b2} {-l2}, {b2} {-l2+1} Z" # Poppa
+        d += f"C {-b2} {-l2}, {b2} {-l2}, {b2} {-l2+1} Z"
         return d
+    
+    # == LOGICA CAMERA (VIEWBOX) ==
+    # Determiniamo l'area da inquadrare (in metri) basandoci su posizioni Cartesiane (Y-up)
+    margin = 20.0
+    
+    # Punti estremi della scena (Nave + Tug + Cavi)
+    min_x_m = min(-SHIP_B/2, tug_prua_x, tug_poppa_x) - margin
+    max_x_m = max(SHIP_B/2, tug_prua_x, tug_poppa_x) + margin
+    min_y_m = min(-SHIP_L/2, tug_prua_y, tug_poppa_y) - margin
+    max_y_m = max(SHIP_L/2, tug_prua_y, tug_poppa_y) + margin
+    
+    if focus_on == "Full Scene (Auto-center)":
+        ext_x = max(abs(min_x_m), abs(max_x_m))
+        ext_y = max(abs(min_y_m), abs(max_y_m))
+        vw, vh = ext_x * 2, ext_y * 2
+        vx, vy = -ext_x, -ext_y
+        
+    elif focus_on == "Bow Assembly":
+        vw = abs(max_x_m - min_x_m) + margin*2
+        vh = abs(tug_prua_y - (chock_prua_y - 20.0))
+        vx = (max_x_m + min_x_m)/2 - vw/2
+        vy = chock_prua_y - 20.0
+
+    elif focus_on == "Bow Tug (central)":
+        vw = 80.0
+        vh = 80.0
+        vx = tug_prua_x - vw/2
+        vy = tug_prua_y - vh/2
+
+    elif focus_on == "Stern Assembly":
+        vw = abs(max_x_m - min_x_m) + margin*2
+        vh = abs((chock_poppa_y + 20.0) - tug_poppa_y)
+        vx = (max_x_m + min_x_m)/2 - vw/2
+        vy = tug_poppa_y
+
+    elif focus_on == "Stern Tug (central)":
+        vw = 80.0
+        vh = 80.0
+        vx = tug_poppa_x - vw/2
+        vy = tug_poppa_y - vh/2
+
+    # Applichiamo lo zoom
+    vw_scaled = vw / zoom_level
+    vh_scaled = vh / zoom_level
+    vx_scaled = vx + (vw - vw_scaled) / 2
+    vy_scaled = vy + (vh - vh_scaled) / 2
 
     # --- Creazione Stringa SVG ---
-    # Definiamo un canvas virtuale enorme per disegnare in coordinate metriche
-    # Il ViewBox gestirà l'inquadratura reale
-    world_w, world_h = 2000, 2000
-    w_cx, w_cy = world_w / 2, world_h / 2 # Centro del mondo virtuale
     
-    # Stile CSS per SVG (testo dritto, transizioni morbide)
+    # RISOLUZIONE BUG: viewbox e sfondo rimossi/corretti
     svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="600px" 
-         style="background-color: #E0F7FA; border-radius: 8px; border: 1px solid #B0BEC5;"
+         viewBox="{vx_scaled} {-vy_scaled - vh_scaled} {vw_scaled} {vh_scaled}"
+         style="background-color: #FFFFFF; border-radius: 8px; border: 1px solid #B0BEC5;"
          id="towing-svg">
          
         <style>
@@ -176,71 +212,19 @@ def generate_svg_scene():
         </style>
     """
     
-    # == LOGICA CAMERA (VIEWBOX) ==
-    # Determiniamo l'area da inquadrare (in metri) basandoci su posizioni estreme
-    margin = 20.0
-    
-    # Punti estremi della scena (Nave + Tug + Cavi)
-    min_x_m = min(-SHIP_B/2, tug_prua_x, tug_poppa_x) - margin
-    max_x_m = max(SHIP_B/2, tug_prua_x, tug_poppa_x) + margin
-    min_y_m = min(-SHIP_L/2, tug_prua_y, tug_poppa_y) - margin
-    max_y_m = max(SHIP_L/2, tug_prua_y, tug_poppa_y) + margin
-    
-    if focus_on == "Full Scene (Auto-center)":
-        # Calcoliamo il bounding box totale centrato sulla nave (0,0)
-        ext_x = max(abs(min_x_m), abs(max_x_m))
-        ext_y = max(abs(min_y_m), abs(max_y_m))
-        vw, vh = ext_x * 2, ext_y * 2
-        vx, vy = -ext_x, -ext_y
-        
-    elif focus_on == "Bow Assembly":
-        # Inquadratura focalizzata su Prua Nave -> Tug Prua
-        vw = abs(max_x_m - min_x_m) + margin*2
-        vh = abs(tug_prua_y - (chock_prua_y - 20.0))
-        vx = (max_x_m + min_x_m)/2 - vw/2
-        vy = chock_prua_y - 20.0
-
-    elif focus_on == "Bow Tug (central)":
-        # Inquadratura centrata esclusivamente sul Rimorchiatore di Prua
-        vw = 80.0  # Finestra di 80x80 metri attorno al tug
-        vh = 80.0
-        vx = tug_prua_x - vw/2
-        vy = tug_prua_y - vh/2
-
-    elif focus_on == "Stern Assembly":
-        # Inquadratura focalizzata su Poppa Nave -> Tug Poppa
-        vw = abs(max_x_m - min_x_m) + margin*2
-        vh = abs((chock_poppa_y + 20.0) - tug_poppa_y)
-        vx = (max_x_m + min_x_m)/2 - vw/2
-        vy = tug_poppa_y
-
-    elif focus_on == "Stern Tug (central)":
-        # Inquadratura centrata esclusivamente sul Rimorchiatore di Poppa
-        vw = 80.0
-        vh = 80.0
-        vx = tug_poppa_x - vw/2
-        vy = tug_poppa_y - vh/2
-
-    # Applichiamo lo zoom (riduciamo la dimensione della finestra vista)
-    vw_scaled = vw / zoom_level
-    vh_scaled = vh / zoom_level
-    # Manteniamo il centro dell'inquadratura originale
-    vx_scaled = vx + (vw - vw_scaled) / 2
-    vy_scaled = vy + (vh - vh_scaled) / 2
-
-    # Impostiamo il ViewBox (vx, vy sono coordinate 'top-left' nel mondo metrico)
-    svg += f'<g transform="translate(0, 0) scale(1, -1)" viewbox="{vx_scaled} {-vy_scaled-vh_scaled} {vw_scaled} {vh_scaled}">'
+    # Flippiamo la Y internamente per lavorare in coordinate Cartesiane (Y-up) nel mondo virtuale
+    svg += '<g transform="scale(1, -1)">'
     
     # == DISEGNO ELEMENTI ==
     
     # 1. Griglia di fondo stilizzata (Vector look)
-    svg += '<g stroke="#B0BEC5" stroke-width="0.2" stroke-dasharray="2 10">'
+    svg += '<g stroke="#E0E0E0" stroke-width="0.2" stroke-dasharray="2 10">'
     for i in range(-500, 501, 50):
-        svg += f'<line x1="{i}" y1="-500" x2="{i}" y2="500" />' # Verticali
-        svg += f'<line x1="-500" y1="{i}" x2="500" y2="{i}" />' # Orizzontali
+        svg += f'<line x1="{i}" y1="-500" x2="{i}" y2="500" />'
+        svg += f'<line x1="-500" y1="{i}" x2="500" y2="{i}" />'
     svg += '</g>'
 
-    # 2. Nave (Scafo Vettoriale)
+    # 2. Nave
     svg += f'<path d="{get_ship_path()}" class="ship-hull" />'
     svg += f'<text x="0" y="0" class="text-label" transform="scale(1,-1)" font-size="12">SHIP</text>'
     
@@ -248,12 +232,9 @@ def generate_svg_scene():
     svg += f'<circle cx="0" cy="{chock_prua_y}" r="1.5" fill="#E74C3C" stroke="black" stroke-width="0.5"/>'
     svg += f'<circle cx="0" cy="{chock_poppa_y}" r="1.5" fill="#E74C3C" stroke="black" stroke-width="0.5"/>'
 
-    # Funzione interna per assemblaggio Tug
     def draw_tug_assembly(tx, ty, angle_deg, intensity, data, label_raw, is_bow):
         assembly = ""
         orig_y = chock_prua_y if is_bow else chock_poppa_y
-        
-        # Cavo (dal chock al centro tug)
         stress = intensity / data["bp"] if data["bp"] > 0 else 0
         r_line = int(120 + stress * 135)
         g_line = int(144 * (1-stress))
@@ -262,35 +243,27 @@ def generate_svg_scene():
         
         assembly += f'<line x1="0" y1="{orig_y}" x2="{tx}" y2="{ty}" class="towline" stroke="{line_col}" />'
         
-        # Tug (Scafo Ruotato in asse)
         rot = angle_deg if is_bow else angle_deg + 180
-        
         assembly += f'<g transform="translate({tx}, {ty}) rotate({-rot})">'
         assembly += f'<path d="{get_tug_path(data)}" class="tug-hull" fill="{data["color"]}" />'
         label = label_raw.split()[0]
         assembly += f'<text x="0" y="0" class="text-label" transform="rotate({rot}) scale(1,-1)" font-size="7">{label}</text>'
         
-        # Freccia Vettore Tiro
         arrow_l = intensity / 2.0
         if arrow_l > 2:
             assembly += f'<line x1="0" y1="{data["L"]/2}" x2="0" y2="{data["L"]/2 + arrow_l}" stroke="#F1C40F" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
-        
         assembly += '</g>'
         
-        # Data Box
         assembly += f'<g transform="translate({tx+data["B"]/2+2}, {ty}) scale(1,-1)">'
         assembly += f'<text x="0" y="-8" class="text-data" font-weight="bold">{label}</text>'
         assembly += f'<text x="0" y="2" class="text-data">Pull: {intensity:.1f}t</text>'
         assembly += f'<text x="0" y="12" class="text-data">Ang: {angle_deg}°</text>'
         assembly += '</g>'
-        
         return assembly
 
-    # Disegna assemblaggi
     svg += draw_tug_assembly(tug_prua_x, tug_prua_y, ang_prua, int_prua, data_prua, s_prua, is_bow=True)
     svg += draw_tug_assembly(tug_poppa_x, tug_poppa_y, ang_poppa, int_poppa, data_poppa, s_poppa, is_bow=False)
 
-    # Definiamo la punta della freccia
     svg += """
     <defs>
         <marker id="arrowhead" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
@@ -298,7 +271,6 @@ def generate_svg_scene():
         </marker>
     </defs>
     """
-
     svg += "</g></svg>"
     return svg
 
@@ -306,7 +278,6 @@ def generate_svg_scene():
 # 5. CALCOLI FISICI E TABELLA RISULTATI
 # ==========================================
 
-# Calcolo del Momento di Rotazione (Torque) totale
 chock_prua_y_m = SHIP_L / 2 - 5.0
 chock_poppa_y_m = -SHIP_L / 2 + 5.0
 
@@ -318,7 +289,6 @@ moment_poppa = force_poppa_x * chock_poppa_y_m
 
 total_moment = moment_prua + moment_poppa
 
-# Preparazione dati per la tabella
 res_prua = data_prua["bp"] - int_prua
 res_poppa = data_poppa["bp"] - int_poppa
 
@@ -342,7 +312,6 @@ df_results = pd.DataFrame({
     "Unità": ["kn", "t", "t", "t", "t", "t·m"]
 })
 
-moment_color = "normal" if abs(total_moment) < 1000 else ("off" if total_moment > 0 else "inverse")
 moment_help = "Rotating Starboard ↻" if total_moment > 50 else ("Rotating Port ↺" if total_moment < -50 else "Pushing Straight")
 
 # ==========================================
@@ -352,18 +321,14 @@ moment_help = "Rotating Starboard ↻" if total_moment > 50 else ("Rotating Port
 with st.spinner("Rendering vector scene..."):
     svg_content = generate_svg_scene()
     
-    # CODIFICA BASE64: Risolve permanentemente i crash di Streamlit e i testi "Matrix"
     b64_svg = base64.b64encode(svg_content.encode('utf-8')).decode('utf-8')
-    html_img = f'<img src="data:image/svg+xml;base64,{b64_svg}" style="width: 100%; border-radius: 8px; border: 1px solid #B0BEC5;">'
+    html_img = f'<img src="data:image/svg+xml;base64,{b64_svg}" style="width: 100%; border-radius: 8px;">'
     
-    # Mostriamo l'immagine come HTML sicuro
     st.markdown(html_img, unsafe_allow_html=True)
     st.caption(f"Vector Tactical View: {focus_on}")
 
-# Visualizzazione metrica rapida del Momento
 st.markdown("---")
 st.metric(label=f"Total Tugs Torque ({moment_help})", value=df_results.iloc[5]["Valore"], delta=f"{total_moment:.0f} t·m")
 
-# Visualizzazione Tabella Risultati Dettagliata
 st.subheader("📋 Simulation Analytical Results")
 st.dataframe(df_results, use_container_width=True, hide_index=True)
