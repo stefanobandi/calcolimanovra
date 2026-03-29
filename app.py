@@ -1,4 +1,6 @@
 import streamlit as st
+import numpy as np
+import pandas as pd
 
 # 1. CONFIGURAZIONE PAGINA
 st.set_page_config(page_title="Simulatore Forze Rimorchiatori", layout="wide")
