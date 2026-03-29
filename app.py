@@ -30,7 +30,6 @@ def reset_simulation():
 # ==========================================
 st.set_page_config(page_title="Vector Towing Simulator", layout="wide")
 
-# Database Rimorchiatori: tow_point definisce se il cavo parte da prua (ASD) o poppa (VWT)
 tug_db = {
     "ASD 70 ton": {"bp": 70.0, "L": 32.0, "B": 11.0, "color": "#E67E22", "tow_point": "bow"},
     "RSD 80 ton": {"bp": 80.0, "L": 25.0, "B": 13.0, "color": "#E74C3C", "tow_point": "bow"},
@@ -41,14 +40,30 @@ tug_db = {
 # Dimensioni Nave Aggiornate
 SHIP_L = 240.0
 SHIP_B = 32.0
-TOWLINE_L_M = 60.0 # Allungato leggermente il cavo per le nuove dimensioni
+TOWLINE_L_M = 60.0 
 
-def get_available_bp(bp_max, speed):
+def get_available_bp(bp_max, speed, position):
+    """
+    Calcola la potenza disponibile in base alla fisica del rimorchio e alla velocità.
+    """
     if bp_max is None or bp_max == 0: return 0.0
-    speed_factor = abs(speed) / 15.0
-    loss = (speed_factor ** 2) * 0.5 
-    available = bp_max * (1.0 - loss)
-    return max(0.0, available)
+    
+    if position == "bow":
+        # Direct Towing: La potenza crolla all'aumentare della velocità. Ad 8-10 nodi è quasi zero.
+        if speed > 0:
+            loss = (speed / 8.0) ** 2
+            return max(0.0, bp_max * (1.0 - loss))
+        else:
+            loss = (abs(speed) / 10.0) ** 2
+            return max(0.0, bp_max * (1.0 - loss))
+    
+    elif position == "stern":
+        # Indirect Towing (Escort): Oltre i 6 nodi, le forze idrodinamiche moltiplicano la spinta.
+        if speed >= 6.0:
+            multiplier = 1.0 + (speed - 6.0) * 0.15 
+            return bp_max * multiplier
+        else:
+            return float(bp_max)
 
 # ==========================================
 # 2. BARRA LATERALE (CONTROLLI GLOBALI)
@@ -84,17 +99,13 @@ st.markdown("#### For technical inquiries, feedback, or data contributions, plea
 st.markdown("*© 2026 Stefano Bandi - All rights reserved. Commercial use is strictly prohibited.*")
 st.markdown("---")
 
-# Calcolo Pivot Point Dinamico Reale (1/3 da prua se avanti, 1/3 da poppa se indietro)
-# In coordinate Y: Centro Nave = 0. Prua = -SHIP_L/2. Poppa = +SHIP_L/2.
-# 1/3 dalla prua significa Y = -SHIP_L/2 + SHIP_L/3 = -SHIP_L/6.
+# Calcolo Pivot Point Dinamico
 max_pp_offset = SHIP_L / 6.0 
 
 if velocita_nave > 0:
-    # Si sposta a prua proporzionalmente, raggiunge 1/3 a 8 nodi
     ratio = min(velocita_nave / 8.0, 1.0)
     pp_offset_y = -max_pp_offset * ratio
 elif velocita_nave < 0:
-    # Si sposta a poppa proporzionalmente
     ratio = min(abs(velocita_nave) / 5.0, 1.0)
     pp_offset_y = max_pp_offset * ratio
 else:
@@ -116,8 +127,8 @@ with col_prua:
         data_prua["B"] = st.number_input("Beam (m) - Bow", 5.0, 20.0, 11.0)
         data_prua["tow_point"] = st.radio("Tow Point - Bow", ["bow", "stern"], index=0, horizontal=True)
     
-    bp_avail_prua = get_available_bp(data_prua["bp"], velocita_nave)
-    st.caption(f"Max BP adjusted for speed: **{bp_avail_prua:.1f} t**")
+    bp_avail_prua = get_available_bp(data_prua["bp"], velocita_nave, "bow")
+    st.caption(f"Direct Tow Limit (Speed Penalty): **{bp_avail_prua:.1f} t**")
         
     ang_prua = st.slider("Angle (°)", -90, 90, step=1, key="ang_prua_s", help="0° = ahead. Positive = Starboard")
     int_prua = st.slider("Intensity (t)", 0.0, float(bp_avail_prua), step=0.5, key="int_prua_s")
@@ -134,8 +145,12 @@ with col_poppa:
         data_poppa["B"] = st.number_input("Beam (m) - Stern", 5.0, 20.0, 11.0)
         data_poppa["tow_point"] = st.radio("Tow Point - Stern", ["bow", "stern"], index=0, horizontal=True)
         
-    bp_avail_poppa = get_available_bp(data_poppa["bp"], velocita_nave)
-    st.caption(f"Max BP adjusted for speed: **{bp_avail_poppa:.1f} t**")
+    bp_avail_poppa = get_available_bp(data_poppa["bp"], velocita_nave, "stern")
+    
+    if velocita_nave >= 6.0:
+        st.caption(f"🔥 Indirect Tow Multiplier! Max Steering Force: **{bp_avail_poppa:.1f} t**")
+    else:
+        st.caption(f"Static Tow Limit: **{bp_avail_poppa:.1f} t**")
         
     ang_poppa = st.slider("Angle (°)", -90, 90, step=1, key="ang_poppa_s", help="0° = astern. Positive = Starboard")
     int_poppa = st.slider("Intensity (t)", 0.0, float(bp_avail_poppa), step=0.5, key="int_poppa_s")
@@ -173,38 +188,36 @@ def generate_svg_scene():
         d += f"L {-b2} {l2-1} C {-b2} {l2}, {b2} {l2}, {b2} {l2-1} Z"
         return d
     
-    margin = 30.0
+    margin = 40.0
     
-    # Calcolo coordinate estreme reali della scena
-    min_x = min(-SHIP_B/2, tug_prua_x, tug_poppa_x) - margin
-    max_x = max(SHIP_B/2, tug_prua_x, tug_poppa_x) + margin
-    min_y = min(-SHIP_L/2, tug_prua_y, tug_poppa_y) - margin
-    max_y = max(SHIP_L/2, tug_prua_y, tug_poppa_y) + margin
+    # Calcolo esatto dei limiti della scena per l'inquadratura Tight Fit
+    min_x = min(-SHIP_B/2, tug_prua_x, tug_poppa_x)
+    max_x = max(SHIP_B/2, tug_prua_x, tug_poppa_x)
+    min_y = min(-SHIP_L/2, tug_prua_y, tug_poppa_y)
+    max_y = max(SHIP_L/2, tug_prua_y, tug_poppa_y)
     
     if focus_on == "Full Scene (Tight Fit)":
-        # Taglio esatto rettangolare, niente più quadrato enorme
-        vw = max_x - min_x
-        vh = max_y - min_y
-        vx = min_x
-        vy = min_y
+        vw = (max_x - min_x) + margin*2
+        vh = (max_y - min_y) + margin*2
+        vx = min_x - margin
+        vy = min_y - margin
     elif focus_on == "Bow Assembly":
-        vw = abs(max_x - min_x)
-        vh = abs(chock_prua_y - tug_prua_y) + margin*2
-        vx = min_x
-        vy = min(chock_prua_y, tug_prua_y) - margin
+        vw = abs(max_x - min_x) + margin*2
+        vh = abs(chock_prua_y - tug_prua_y) + margin*3
+        vx = min_x - margin
+        vy = min(chock_prua_y, tug_prua_y) - margin*1.5
     elif focus_on == "Bow Tug (central)":
         vw, vh = 100.0, 100.0
         vx, vy = tug_prua_x - vw/2, tug_prua_y - vh/2
     elif focus_on == "Stern Assembly":
-        vw = abs(max_x - min_x)
-        vh = abs(tug_poppa_y - chock_poppa_y) + margin*2
-        vx = min_x
-        vy = min(chock_poppa_y, tug_poppa_y) - margin
+        vw = abs(max_x - min_x) + margin*2
+        vh = abs(tug_poppa_y - chock_poppa_y) + margin*3
+        vx = min_x - margin
+        vy = min(chock_poppa_y, tug_poppa_y) - margin*1.5
     elif focus_on == "Stern Tug (central)":
         vw, vh = 100.0, 100.0
         vx, vy = tug_poppa_x - vw/2, tug_poppa_y - vh/2
 
-    # Applichiamo lo zoom mantenendo il centro
     cx = vx + vw / 2
     cy = vy + vh / 2
     vw_scaled = vw / zoom_level
@@ -212,10 +225,11 @@ def generate_svg_scene():
     vx_scaled = cx - vw_scaled / 2
     vy_scaled = cy - vh_scaled / 2
 
+    # L'altezza viene gestita dinamicamente con il width=100% e height=100% per un vero Tight Fit
     svg = f"""
-    <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="700px" 
+    <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" 
          viewBox="{vx_scaled} {vy_scaled} {vw_scaled} {vh_scaled}"
-         style="background-color: #FFFFFF; border-radius: 8px; border: 1px solid #B0BEC5;"
+         style="background-color: #FFFFFF; border-radius: 8px; border: 1px solid #B0BEC5; max-height: 80vh;"
          id="towing-svg">
          
         <style>
@@ -228,28 +242,23 @@ def generate_svg_scene():
         </style>
     """
     
-    # Griglia sfondo leggera
     svg += '<g stroke="#F0F0F0" stroke-width="0.3" stroke-dasharray="5 15">'
     for i in range(-500, 501, 20):
         svg += f'<line x1="{i}" y1="-500" x2="{i}" y2="500" />'
         svg += f'<line x1="-500" y1="{i}" x2="500" y2="{i}" />'
     svg += '</g>'
 
-    # Disegno Nave
     svg += f'<path d="{get_ship_path()}" class="ship-hull" />'
     svg += f'<text x="0" y="5" class="text-label" font-size="16">SHIP</text>'
     
-    # Disegno Pivot Point Dinamico
     svg += f'<circle cx="0" cy="{pp_offset_y}" r="3" fill="none" stroke="#27AE60" stroke-width="1.5"/>'
     svg += f'<line x1="-12" y1="{pp_offset_y}" x2="12" y2="{pp_offset_y}" class="pivot-cross"/>'
     svg += f'<line x1="0" y1="{pp_offset_y-12}" x2="0" y2="{pp_offset_y+12}" class="pivot-cross"/>'
     svg += f'<text x="15" y="{pp_offset_y+4}" fill="#27AE60" font-size="8" font-weight="bold">PIVOT POINT</text>'
 
-    # Chocks
     svg += f'<circle cx="0" cy="{chock_prua_y}" r="2" fill="#E74C3C" stroke="black" stroke-width="0.5"/>'
     svg += f'<circle cx="0" cy="{chock_poppa_y}" r="2" fill="#E74C3C" stroke="black" stroke-width="0.5"/>'
 
-    # Funzione assemblaggio Tug geometricamente rigorosa
     def draw_tug_assembly(tx, ty, angle_deg, intensity, data, label_raw, is_bow):
         assembly = ""
         orig_y = chock_prua_y if is_bow else chock_poppa_y
@@ -262,20 +271,20 @@ def generate_svg_scene():
         
         assembly += f'<line x1="0" y1="{orig_y}" x2="{tx}" y2="{ty}" class="towline" stroke="{line_col}" />'
         
-        yaw_drift = velocita_nave * math.sin(math.radians(angle_deg)) * 2.0 
-        
-        # Posizionamento Rigoroso:
-        # Il punto (tx, ty) è il verricello.
-        if data["tow_point"] == "bow":
-            # ASD tira con la prua. La prua del rimorchiatore deve stare su (tx, ty) e guardare la nave.
-            rot = angle_deg + 180 + yaw_drift if is_bow else angle_deg + 180 + yaw_drift
-            # In locale (dopo rotazione), la prua è a Y = -L/2. Trasliamo lo scafo di +L/2 lungo Y per far coincidere prua e verricello.
-            offset_y = data["L"] / 2.0 
-        else:
-            # VWT tira con la poppa. La poppa del rimorchiatore deve stare su (tx, ty) e guardare la nave.
-            rot = angle_deg + yaw_drift if is_bow else angle_deg + yaw_drift
-            # In locale, la poppa è a Y = +L/2. Trasliamo lo scafo di -L/2.
+        if is_bow:
+            # PRUA: Guarda in avanti (nel senso di navigazione) per il Direct Towing
+            rot = angle_deg
+            # Ancoriamo visivamente il cavo alla sua poppa per evitare sovrapposizioni grafiche sgradevoli
             offset_y = -data["L"] / 2.0 
+        else:
+            # POPPA: Guarda verso la nave (Escort) e subisce lo scarroccio (yaw drift) per l'Indirect Towing
+            yaw_drift = velocita_nave * math.sin(math.radians(angle_deg)) * 2.5 
+            if data["tow_point"] == "bow":
+                rot = angle_deg + 180 + yaw_drift 
+                offset_y = data["L"] / 2.0 
+            else:
+                rot = angle_deg + yaw_drift 
+                offset_y = -data["L"] / 2.0 
             
         assembly += f'<g transform="translate({tx}, {ty}) rotate({rot})">'
         
@@ -293,7 +302,8 @@ def generate_svg_scene():
         assembly += '</g></g>' 
         
         assembly += f'<g transform="translate({tx+data["B"]/2+5}, {ty})">'
-        assembly += f'<text x="0" y="-12" class="text-data">{label} ({data["tow_point"].upper()})</text>'
+        mode = "DIRECT" if is_bow else "ESCORT" if velocita_nave >= 6 else "DIRECT"
+        assembly += f'<text x="0" y="-12" class="text-data">{label} [{mode}]</text>'
         assembly += f'<text x="0" y="-2" class="text-data">Pull: {intensity:.1f}t</text>'
         assembly += f'<text x="0" y="8" class="text-data">Ang: {angle_deg}°</text>'
         assembly += '</g>'
@@ -319,7 +329,6 @@ def generate_svg_scene():
 chock_prua_y = -SHIP_L / 2 + 5.0
 chock_poppa_y = SHIP_L / 2 - 5.0
 
-# Bracci ricalcolati rispetto al Pivot Point reale
 braccio_prua = abs(chock_prua_y - pp_offset_y)
 braccio_poppa = abs(chock_poppa_y - pp_offset_y)
 
@@ -347,9 +356,9 @@ df_results = pd.DataFrame({
     "Valore": [
         f"{velocita_nave} nodi",
         f"{abs(pp_offset_y):.1f} m",
-        f"{int_prua:.1f} t / {bp_avail_prua:.0f} t",
+        f"{int_prua:.1f} t / {bp_avail_prua:.0f} t (Direct)",
         f"{res_prua:.1f} t",
-        f"{int_poppa:.1f} t / {bp_avail_poppa:.0f} t",
+        f"{int_poppa:.1f} t / {bp_avail_poppa:.0f} t ({'Indirect' if velocita_nave >= 6 else 'Direct'})",
         f"{res_poppa:.1f} t",
         f"{total_moment:.0f} t·m"
     ],
@@ -366,8 +375,7 @@ with st.spinner("Calculating physical interactions..."):
     svg_content = generate_svg_scene()
     
     b64_svg = base64.b64encode(svg_content.encode('utf-8')).decode('utf-8')
-    # Aumentato il riquadro dell'immagine rimuovendo limitazioni CSS per un feeling "widescreen"
-    html_img = f'<div style="display:flex; justify-content:center;"><img src="data:image/svg+xml;base64,{b64_svg}" style="width: 100%; max-width: 1200px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>'
+    html_img = f'<div style="display:flex; justify-content:center;"><img src="data:image/svg+xml;base64,{b64_svg}" style="width: 100%; max-width: 1400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>'
     
     st.markdown(html_img, unsafe_allow_html=True)
     st.caption(f"Physics Engine View: {focus_on}")
